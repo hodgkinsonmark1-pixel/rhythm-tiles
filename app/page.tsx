@@ -81,7 +81,7 @@ export default function RhythmGame() {
   const [gameProgress, setGameProgress] = useState(0)
   const [isGameActive, setIsGameActive] = useState(false)
   const [highScores, setHighScores] = useState<Record<string, number>>({})
-  const [comboPopup, setComboPopup] = useState<{ text: string; x: number; y: number } | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     const stored = localStorage.getItem('rhythmGameScores')
@@ -292,21 +292,36 @@ export default function RhythmGame() {
   }
 
   const playGameAudio = (song: Song) => {
+    setIsLoading(true)
+    console.log('Starting game with song:', song.url)
+    
     if (audioRef.current) {
       audioRef.current.src = song.url
       audioRef.current.currentTime = 0
-      audioRef.current.play().then(() => {
-        spawnTiles(song)
-        startGameAnimation(song)
+      
+      const playPromise = audioRef.current.play()
+      
+      if (playPromise) {
+        playPromise.then(() => {
+          console.log('Audio started playing')
+          setIsLoading(false)
+          const spawnLoop = spawnTiles(song)
+          startGameAnimation(song)
 
-        setTimeout(() => {
-          if (isGameActive) {
-            endGame()
-          }
-        }, song.duration * 1000 + 500)
-      }).catch((err) => {
-        console.log('Audio playback failed:', err)
-      })
+          setTimeout(() => {
+            if (isGameActive) {
+              endGame()
+            }
+          }, song.duration * 1000 + 500)
+        }).catch((err) => {
+          console.error('Audio playback error:', err)
+          setIsLoading(false)
+          alert('Audio failed to play. Try again!')
+        })
+      }
+    } else {
+      console.error('Audio ref not available')
+      setIsLoading(false)
     }
   }
 
@@ -486,9 +501,10 @@ export default function RhythmGame() {
         <div className="w-screen h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
           <button
             onClick={() => playGameAudio(selectedSong)}
-            className="px-12 py-6 bg-green-600 hover:bg-green-700 rounded-lg text-white font-bold text-3xl transition-all"
+            disabled={isLoading}
+            className="px-12 py-6 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-lg text-white font-bold text-3xl transition-all"
           >
-            🎵 TAP TO START
+            {isLoading ? '⏳ Loading...' : '🎵 TAP TO START'}
           </button>
         </div>
       )
