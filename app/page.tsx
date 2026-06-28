@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 
-// Types
 interface Song {
   id: string
   name: string
@@ -31,7 +30,6 @@ interface GameState {
   bonusStars: number
 }
 
-// Sample songs
 const DEFAULT_SONGS: Song[] = [
   {
     id: 'test-1',
@@ -52,14 +50,13 @@ const DEFAULT_SONGS: Song[] = [
 const COLUMN_COUNT = 4
 const EASY_HIT_WINDOW = 200
 const STANDARD_HIT_WINDOW = 80
-const HIT_ZONE_Y = 200
 
 export default function RhythmGame() {
   const [screen, setScreen] = useState<'songSelect' | 'difficultySelect' | 'training' | 'game' | 'gameOver'>('songSelect')
-  const [songs, setSongs] = useState<Song[]>(DEFAULT_SONGS)
   const [selectedSong, setSelectedSong] = useState<Song | null>(null)
   const [difficulty, setDifficulty] = useState<'easy' | 'standard'>('easy')
   const [trainingPhase, setTrainingPhase] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
 
   const [gameState, setGameState] = useState<GameState>({
     score: 0,
@@ -73,7 +70,6 @@ export default function RhythmGame() {
   })
 
   const audioRef = useRef<HTMLAudioElement>(null)
-  const gameStartTimeRef = useRef<number>(0)
   const tilesRef = useRef<Tile[]>([])
   const animationFrameRef = useRef<number | null>(null)
   const playFieldRef = useRef<HTMLDivElement>(null)
@@ -81,13 +77,11 @@ export default function RhythmGame() {
   const [gameProgress, setGameProgress] = useState(0)
   const [isGameActive, setIsGameActive] = useState(false)
   const [highScores, setHighScores] = useState<Record<string, number>>({})
-  const [isLoading, setIsLoading] = useState(false)
+  const [comboPopup, setComboPopup] = useState<{ text: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem('rhythmGameScores')
-    if (stored) {
-      setHighScores(JSON.parse(stored))
-    }
+    if (stored) setHighScores(JSON.parse(stored))
   }, [])
 
   const saveHighScore = (songId: string, score: number) => {
@@ -103,15 +97,14 @@ export default function RhythmGame() {
   const spawnTiles = (song: Song) => {
     const beatDuration = (60 / song.bpm) * 1000
     const startTime = Date.now()
-    gameStartTimeRef.current = startTime
 
     const spawnLoop = setInterval(() => {
-      if (!isGameActive) {
+      if (!isGameActive || !audioRef.current) {
         clearInterval(spawnLoop)
         return
       }
 
-      const elapsed = Date.now() - startTime
+      const elapsed = audioRef.current.currentTime * 1000
       if (elapsed > song.duration * 1000) {
         clearInterval(spawnLoop)
         return
@@ -135,9 +128,7 @@ export default function RhythmGame() {
   }
 
   const startGameAnimation = (song: Song) => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-    }
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
 
     const animate = () => {
       if (!isGameActive || !audioRef.current) {
@@ -168,12 +159,10 @@ export default function RhythmGame() {
 
   const hitTile = (tileId: string, x: number, y: number) => {
     const tile = tilesRef.current.find((t) => t.id === tileId)
-    if (!tile || tile.hit) return
+    if (!tile || tile.hit || !audioRef.current) return
 
-    if (!audioRef.current) return
     const currentTime = audioRef.current.currentTime * 1000
-    const tileTime = tile.startTime
-    const distance = Math.abs(currentTime - tileTime)
+    const distance = Math.abs(currentTime - tile.startTime)
     const hitWindow = getHitWindow()
 
     let accuracy: 'perfect' | 'good' | 'miss'
@@ -217,36 +206,36 @@ export default function RhythmGame() {
   }
 
   const playSound = (type: 'pop' | 'miss') => {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const now = audioContext.currentTime
-    const osc = audioContext.createOscillator()
-    const gain = audioContext.createGain()
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const now = audioContext.currentTime
+      const osc = audioContext.createOscillator()
+      const gain = audioContext.createGain()
 
-    osc.connect(gain)
-    gain.connect(audioContext.destination)
+      osc.connect(gain)
+      gain.connect(audioContext.destination)
 
-    if (type === 'pop') {
-      osc.frequency.setValueAtTime(800, now)
-      gain.gain.setValueAtTime(0.3, now)
-    } else {
-      osc.frequency.setValueAtTime(200, now)
-      gain.gain.setValueAtTime(0.1, now)
+      if (type === 'pop') {
+        osc.frequency.setValueAtTime(800, now)
+        gain.gain.setValueAtTime(0.3, now)
+      } else {
+        osc.frequency.setValueAtTime(200, now)
+        gain.gain.setValueAtTime(0.1, now)
+      }
+
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1)
+      osc.start(now)
+      osc.stop(now + 0.1)
+    } catch (e) {
+      console.log('Sound playback failed:', e)
     }
-
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1)
-    osc.start(now)
-    osc.stop(now + 0.1)
   }
 
   const endGame = () => {
     setIsGameActive(false)
 
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-    }
-    if (audioRef.current) {
-      audioRef.current.pause()
-    }
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
+    if (audioRef.current) audioRef.current.pause()
 
     const totalHits = gameState.perfect + gameState.good + gameState.miss
     const accuracy = totalHits > 0 ? (gameState.perfect + gameState.good) / totalHits : 0
@@ -258,19 +247,14 @@ export default function RhythmGame() {
     else if (accuracy >= 0.6) stars = 2
     else if (accuracy >= 0.4) stars = 1
 
-    setGameState((prev) => ({
-      ...prev,
-      stars,
-    }))
+    setGameState((prev) => ({ ...prev, stars }))
 
-    if (selectedSong) {
-      saveHighScore(selectedSong.id, gameState.score)
-    }
+    if (selectedSong) saveHighScore(selectedSong.id, gameState.score)
 
     setScreen('gameOver')
   }
 
-  const startGame = async (song: Song, diff: 'easy' | 'standard') => {
+  const startGame = (song: Song, diff: 'easy' | 'standard') => {
     setSelectedSong(song)
     setDifficulty(diff)
     setGameState({
@@ -286,42 +270,42 @@ export default function RhythmGame() {
     tilesRef.current = []
     setTiles([])
     setGameProgress(0)
-
-    setScreen('game')
     setIsGameActive(true)
+    setScreen('game')
   }
 
   const playGameAudio = (song: Song) => {
     setIsLoading(true)
-    console.log('Starting game with song:', song.url)
-    
-    if (audioRef.current) {
-      audioRef.current.src = song.url
-      audioRef.current.currentTime = 0
-      
-      const playPromise = audioRef.current.play()
-      
-      if (playPromise) {
-        playPromise.then(() => {
-          console.log('Audio started playing')
+    console.log('Playing song:', song.url)
+
+    if (!audioRef.current) {
+      console.error('Audio ref not available')
+      setIsLoading(false)
+      return
+    }
+
+    audioRef.current.src = song.url
+    audioRef.current.currentTime = 0
+
+    const playPromise = audioRef.current.play()
+
+    if (playPromise) {
+      playPromise
+        .then(() => {
+          console.log('Audio started')
           setIsLoading(false)
-          const spawnLoop = spawnTiles(song)
+          spawnTiles(song)
           startGameAnimation(song)
 
           setTimeout(() => {
-            if (isGameActive) {
-              endGame()
-            }
+            if (isGameActive) endGame()
           }, song.duration * 1000 + 500)
-        }).catch((err) => {
-          console.error('Audio playback error:', err)
-          setIsLoading(false)
-          alert('Audio failed to play. Try again!')
         })
-      }
-    } else {
-      console.error('Audio ref not available')
-      setIsLoading(false)
+        .catch((err) => {
+          console.error('Audio error:', err)
+          setIsLoading(false)
+          alert('Could not play audio. Check browser settings.')
+        })
     }
   }
 
@@ -332,10 +316,7 @@ export default function RhythmGame() {
     return (
       <div ref={playFieldRef} className="relative w-full h-full bg-gradient-to-b from-slate-900 to-slate-800 overflow-hidden">
         <div className="absolute top-4 left-4 right-4 h-1 bg-slate-700 rounded-full overflow-hidden z-50">
-          <div
-            className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all"
-            style={{ width: `${gameProgress}%` }}
-          />
+          <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all" style={{ width: `${gameProgress}%` }} />
         </div>
 
         <div className="absolute top-8 left-4 right-4 flex justify-between text-white text-sm z-50">
@@ -348,19 +329,14 @@ export default function RhythmGame() {
         </div>
 
         {tiles.map((tile) => {
-          const tileY = (audioRef.current ? (audioRef.current.currentTime * 1000 - tile.startTime) * 0.3 : 0)
+          const tileY = audioRef.current ? (audioRef.current.currentTime * 1000 - tile.startTime) * 0.3 : 0
           const isInHitZone = Math.abs(tileY - (playFieldRef.current?.clientHeight || 400) + 100) < hitWindow
-          const isLongNote = tile.duration > 0
 
           return (
             <div
               key={tile.id}
               onClick={() => hitTile(tile.id, tile.column * columnWidth + columnWidth / 2, 200)}
-              className={`absolute cursor-pointer transition-all ${
-                tile.hit ? 'opacity-0 scale-150' : ''
-              } ${isInHitZone ? 'ring-4 ring-yellow-300' : ''} ${
-                isLongNote ? 'animate-pulse' : ''
-              }`}
+              className={`absolute cursor-pointer transition-all ${tile.hit ? 'opacity-0 scale-150' : ''} ${isInHitZone ? 'ring-4 ring-yellow-300' : ''}`}
               style={{
                 left: `${tile.column * columnWidth + columnWidth / 2 - 40}px`,
                 top: `${tileY}px`,
@@ -376,9 +352,7 @@ export default function RhythmGame() {
                       ? 'bg-blue-500'
                       : tile.accuracy === 'miss'
                         ? 'bg-red-500'
-                        : isLongNote
-                          ? 'bg-purple-500 animate-pulse'
-                          : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                        : 'bg-gradient-to-br from-blue-500 to-purple-600'
                 }`}
               >
                 ♪
@@ -412,7 +386,7 @@ export default function RhythmGame() {
         <p className="text-slate-300 text-center mb-12 max-w-md">Choose a song and tap tiles to the beat!</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
-          {songs.map((song) => (
+          {DEFAULT_SONGS.map((song) => (
             <button
               key={song.id}
               onClick={() => {
@@ -437,30 +411,18 @@ export default function RhythmGame() {
         <p className="text-slate-300 mb-12">Choose difficulty</p>
 
         <div className="flex gap-6">
-          <button
-            onClick={() => setScreen('training')}
-            className="px-8 py-4 bg-green-600 hover:bg-green-700 rounded-lg text-white font-bold text-xl transition-all"
-          >
+          <button onClick={() => setScreen('training')} className="px-8 py-4 bg-green-600 hover:bg-green-700 rounded-lg text-white font-bold text-xl transition-all">
             🏋️ Training Mode
           </button>
-          <button
-            onClick={() => startGame(selectedSong, 'easy')}
-            className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-bold text-xl transition-all"
-          >
+          <button onClick={() => startGame(selectedSong, 'easy')} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-bold text-xl transition-all">
             Easy
           </button>
-          <button
-            onClick={() => startGame(selectedSong, 'standard')}
-            className="px-8 py-4 bg-red-600 hover:bg-red-700 rounded-lg text-white font-bold text-xl transition-all"
-          >
+          <button onClick={() => startGame(selectedSong, 'standard')} className="px-8 py-4 bg-red-600 hover:bg-red-700 rounded-lg text-white font-bold text-xl transition-all">
             Standard
           </button>
         </div>
 
-        <button
-          onClick={() => setScreen('songSelect')}
-          className="mt-8 px-4 py-2 bg-slate-600 hover:bg-slate-700 rounded text-white text-sm"
-        >
+        <button onClick={() => setScreen('songSelect')} className="mt-8 px-4 py-2 bg-slate-600 hover:bg-slate-700 rounded text-white text-sm">
           Back
         </button>
       </div>
@@ -469,7 +431,7 @@ export default function RhythmGame() {
 
   if (screen === 'training' && selectedSong) {
     const phases = ['Dead Easy', 'Easy', 'Medium', 'Hard']
-    const difficultySetting = ['easy', 'easy', 'easy', 'standard'][trainingPhase] as 'easy' | 'standard'
+    const difficultySetting = (['easy', 'easy', 'easy', 'standard'][trainingPhase] as 'easy' | 'standard') || 'easy'
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 flex flex-col items-center justify-center">
@@ -478,17 +440,11 @@ export default function RhythmGame() {
           Phase {trainingPhase + 1}/4: {phases[trainingPhase]}
         </p>
 
-        <button
-          onClick={() => startGame(selectedSong!, difficultySetting)}
-          className="px-8 py-4 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-bold text-xl transition-all mb-8"
-        >
+        <button onClick={() => startGame(selectedSong!, difficultySetting)} className="px-8 py-4 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-bold text-xl transition-all mb-8">
           Start Phase {trainingPhase + 1}
         </button>
 
-        <button
-          onClick={() => setScreen('difficultySelect')}
-          className="px-4 py-2 bg-slate-600 hover:bg-slate-700 rounded text-white text-sm"
-        >
+        <button onClick={() => setScreen('difficultySelect')} className="px-4 py-2 bg-slate-600 hover:bg-slate-700 rounded text-white text-sm">
           Back
         </button>
       </div>
@@ -499,16 +455,13 @@ export default function RhythmGame() {
     if (gameProgress === 0) {
       return (
         <div className="w-screen h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-          <button
-            onClick={() => playGameAudio(selectedSong)}
-            disabled={isLoading}
-            className="px-12 py-6 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-lg text-white font-bold text-3xl transition-all"
-          >
+          <button onClick={() => playGameAudio(selectedSong)} disabled={isLoading} className="px-12 py-6 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-lg text-white font-bold text-3xl transition-all">
             {isLoading ? '⏳ Loading...' : '🎵 TAP TO START'}
           </button>
         </div>
       )
     }
+
     return <div className="w-screen h-screen">{renderGame()}</div>
   }
 
@@ -559,10 +512,7 @@ export default function RhythmGame() {
           >
             Play Again
           </button>
-          <button
-            onClick={() => setScreen('songSelect')}
-            className="px-6 py-3 bg-slate-600 hover:bg-slate-700 rounded-lg text-white font-bold transition-all"
-          >
+          <button onClick={() => setScreen('songSelect')} className="px-6 py-3 bg-slate-600 hover:bg-slate-700 rounded-lg text-white font-bold transition-all">
             Change Song
           </button>
         </div>
