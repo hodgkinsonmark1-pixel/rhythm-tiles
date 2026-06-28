@@ -184,22 +184,19 @@ export default function RhythmGame() {
   }
 
   const playGameAudio = (song: Song) => {
-    setIsLoading(true)
-    if (!audioRef.current) { setIsLoading(false); return }
-    audioRef.current.src = song.url
-    audioRef.current.currentTime = 0
-    audioRef.current.play()
-      .then(() => {
-        setIsLoading(false)
-        setGameStarted(true)
-        runGame(song)
-        setTimeout(() => { if (activeRef.current) endGame(gameState, song.id) }, song.duration * 1000 + 1000)
-      })
-      .catch((err) => {
-        setIsLoading(false)
-        alert('Could not play audio: ' + err.message)
-      })
+  if (!audioRef.current) return
+  setIsLoading(true)
+  audioRef.current.src = song.url
+  const p = audioRef.current.play()
+  setIsLoading(false)
+  setGameStarted(true)
+  runGame(song)
+  if (p) {
+    p.catch((err) => {
+      console.error('Audio error:', err)
+    })
   }
+}
 
   const goToGame = (song: Song, diff: 'easy' | 'standard') => {
     setSelectedSong(song)
@@ -318,7 +315,7 @@ export default function RhythmGame() {
         <p className="text-slate-400">{difficulty === 'easy' ? '😊 Easy Mode' : '🔥 Standard Mode'}</p>
         <audio ref={audioRef} crossOrigin="anonymous" />
         <button
-          onPointerDown={() => playGameAudio(selectedSong)}
+          onClick={() => playGameAudio(selectedSong)}
           disabled={isLoading}
           className="px-16 py-8 bg-green-600 rounded-3xl text-white font-bold text-4xl shadow-2xl active:scale-95 transition-all disabled:opacity-50"
         >
