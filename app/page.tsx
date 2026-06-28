@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
 
@@ -36,8 +36,8 @@ const DEFAULT_SONGS: Song[] = [
 ]
 
 const COLUMN_COUNT = 4
-const EASY_HIT_WINDOW = 200
-const STANDARD_HIT_WINDOW = 80
+const EASY_HIT_WINDOW = 500
+const STANDARD_HIT_WINDOW = 200
 const FALL_SPEED = 0.4
 const LEAD_TIME = 2000
 
@@ -176,7 +176,7 @@ export default function RhythmGame() {
       }
       tilesRef.current = [...tilesRef.current, tile]
       setTiles([...tilesRef.current])
-    }, beatMs * 0.75)
+    }, beatMs * 1.25)
 
     const animate = () => {
       if (!activeRef.current || !audioRef.current || pausedRef.current) return
