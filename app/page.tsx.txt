@@ -39,26 +39,25 @@ const EASY_HIT_WINDOW = 200
 const STANDARD_HIT_WINDOW = 80
 
 export default function RhythmGame() {
-  const [screen, setScreen] = useState<'songSelect' | 'difficultySelect' | 'training' | 'game' | 'gameOver'>('songSelect')
+  const [screen, setScreen] = useState<'songSelect' | 'difficultySelect' | 'game' | 'gameOver'>('songSelect')
   const [selectedSong, setSelectedSong] = useState<Song | null>(null)
   const [difficulty, setDifficulty] = useState<'easy' | 'standard'>('easy')
-  const [trainingPhase, setTrainingPhase] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [gameStarted, setGameStarted] = useState(false)
-
   const [gameState, setGameState] = useState<GameState>({ score: 0, perfect: 0, good: 0, miss: 0, combo: 0, maxCombo: 0, stars: 0, bonusStars: 0 })
+  const [tiles, setTiles] = useState<Tile[]>([])
+  const [gameProgress, setGameProgress] = useState(0)
+  const [highScores, setHighScores] = useState<Record<string, number>>({})
+  const [comboPopup, setComboPopup] = useState<string | null>(null)
 
+  // Single persistent audio element - never unmounts
   const audioRef = useRef<HTMLAudioElement>(null)
   const tilesRef = useRef<Tile[]>([])
   const animationFrameRef = useRef<number | null>(null)
   const playFieldRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef(false)
   const difficultyRef = useRef<'easy' | 'standard'>('easy')
-
-  const [tiles, setTiles] = useState<Tile[]>([])
-  const [gameProgress, setGameProgress] = useState(0)
-  const [highScores, setHighScores] = useState<Record<string, number>>({})
-  const [comboPopup, setComboPopup] = useState<{ text: string } | null>(null)
+  const gameStateRef = useRef<GameState>({ score: 0, perfect: 0, good: 0, miss: 0, combo: 0, maxCombo: 0, stars: 0, bonusStars: 0 })
 
   useEffect(() => {
     const stored = localStorage.getItem('rhythmGameScores')
@@ -73,11 +72,12 @@ export default function RhythmGame() {
     })
   }
 
-  const endGame = (finalState: GameState, songId: string) => {
+  const endGame = () => {
     activeRef.current = false
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
     if (audioRef.current) audioRef.current.pause()
 
+    const finalState = gameStateRef.current
     const totalHits = finalState.perfect + finalState.good + finalState.miss
     const accuracy = totalHits > 0 ? (finalState.perfect + finalState.good) / totalHits : 0
     let stars = 0
@@ -88,7 +88,7 @@ export default function RhythmGame() {
     else if (accuracy >= 0.4) stars = 1
 
     setGameState((prev) => ({ ...prev, stars }))
-    saveHighScore(songId, finalState.score)
+    if (selectedSong) saveHighScore(selectedSong.id, finalState.score)
     setScreen('gameOver')
   }
 
@@ -96,7 +96,6 @@ export default function RhythmGame() {
     if (!audioRef.current) return
     const currentTime = audioRef.current.currentTime * 1000
     const hitWindow = difficultyRef.current === 'easy' ? EASY_HIT_WINDOW : STANDARD_HIT_WINDOW
-
     const tile = tilesRef.current.find((t) => t.id === tileId)
     if (!tile || tile.hit) return
 
@@ -115,19 +114,16 @@ export default function RhythmGame() {
       const newCombo = accuracy !== 'miss' ? prev.combo + 1 : 0
       const newBonusStars = newCombo > 0 && newCombo % 10 === 0 ? prev.bonusStars + 2 : prev.bonusStars
       if (newCombo > 0 && newCombo % 10 === 0) {
-        setComboPopup({ text: `🌟 ${newCombo} COMBO! +2 Stars!` })
+        setComboPopup(`🌟 ${newCombo} COMBO! +2 Stars!`)
         setTimeout(() => setComboPopup(null), 1500)
       }
-      return {
-        ...prev,
-        score: prev.score + points,
+      const next = { ...prev, score: prev.score + points,
         perfect: accuracy === 'perfect' ? prev.perfect + 1 : prev.perfect,
         good: accuracy === 'good' ? prev.good + 1 : prev.good,
         miss: accuracy === 'miss' ? prev.miss + 1 : prev.miss,
-        combo: newCombo,
-        maxCombo: Math.max(prev.maxCombo, newCombo),
-        bonusStars: newBonusStars,
-      }
+        combo: newCombo, maxCombo: Math.max(prev.maxCombo, newCombo), bonusStars: newBonusStars }
+      gameStateRef.current = next
+      return next
     })
 
     try {
@@ -145,6 +141,7 @@ export default function RhythmGame() {
   const runGame = (song: Song) => {
     activeRef.current = true
     const beatMs = (60 / song.bpm) * 1000
+
     const spawnInterval = setInterval(() => {
       if (!activeRef.current || !audioRef.current) { clearInterval(spawnInterval); return }
       const elapsed = audioRef.current.currentTime * 1000
@@ -152,30 +149,21 @@ export default function RhythmGame() {
       const tile: Tile = {
         id: `${Date.now()}-${Math.random()}`,
         column: Math.floor(Math.random() * COLUMN_COUNT),
-        startTime: elapsed,
-        hit: false,
-        accuracy: null,
+        startTime: elapsed, hit: false, accuracy: null,
       }
       tilesRef.current = [...tilesRef.current, tile]
       setTiles([...tilesRef.current])
     }, beatMs * 0.75)
 
-    let lastGameState = { score: 0, perfect: 0, good: 0, miss: 0, combo: 0, maxCombo: 0, stars: 0, bonusStars: 0 }
-    setGameState((s) => { lastGameState = s; return s })
-
     const animate = () => {
       if (!activeRef.current || !audioRef.current) return
       const currentTime = audioRef.current.currentTime * 1000
       setGameProgress(Math.min((currentTime / (song.duration * 1000)) * 100, 100))
-      tilesRef.current = tilesRef.current.filter((t) => {
-        const y = (currentTime - t.startTime) * 0.3
-        return y < 700
-      })
+      tilesRef.current = tilesRef.current.filter((t) => (currentTime - t.startTime) * 0.3 < 700)
       setTiles([...tilesRef.current])
-      setGameState((s) => { lastGameState = s; return s })
       if (currentTime >= song.duration * 1000) {
         clearInterval(spawnInterval)
-        endGame(lastGameState, song.id)
+        endGame()
         return
       }
       animationFrameRef.current = requestAnimationFrame(animate)
@@ -183,26 +171,13 @@ export default function RhythmGame() {
     animationFrameRef.current = requestAnimationFrame(animate)
   }
 
-  const playGameAudio = (song: Song) => {
-  if (!audioRef.current) return
-  setIsLoading(true)
-  audioRef.current.src = song.url
-  const p = audioRef.current.play()
-  setIsLoading(false)
-  setGameStarted(true)
-  runGame(song)
-  if (p) {
-    p.catch((err) => {
-      console.error('Audio error:', err)
-    })
-  }
-}
-
-  const goToGame = (song: Song, diff: 'easy' | 'standard') => {
+  const startGame = (song: Song, diff: 'easy' | 'standard') => {
     setSelectedSong(song)
     setDifficulty(diff)
     difficultyRef.current = diff
-    setGameState({ score: 0, perfect: 0, good: 0, miss: 0, combo: 0, maxCombo: 0, stars: 0, bonusStars: 0 })
+    const fresh = { score: 0, perfect: 0, good: 0, miss: 0, combo: 0, maxCombo: 0, stars: 0, bonusStars: 0 }
+    setGameState(fresh)
+    gameStateRef.current = fresh
     tilesRef.current = []
     setTiles([])
     setGameProgress(0)
@@ -211,77 +186,20 @@ export default function RhythmGame() {
     setScreen('game')
   }
 
-  const renderGame = () => {
-    if (!selectedSong) return null
-    const hitWindow = difficultyRef.current === 'easy' ? EASY_HIT_WINDOW : STANDARD_HIT_WINDOW
-    const fieldWidth = playFieldRef.current?.clientWidth || 400
-    const fieldHeight = playFieldRef.current?.clientHeight || 700
-    const colW = fieldWidth / COLUMN_COUNT
-    const currentTime = audioRef.current ? audioRef.current.currentTime * 1000 : 0
-    const hitZoneY = fieldHeight - 180
-
-    return (
-      <div ref={playFieldRef} className="relative w-full h-full bg-gradient-to-b from-slate-900 to-slate-800 overflow-hidden touch-none">
-        <audio ref={audioRef} crossOrigin="anonymous" />
-
-        {/* Progress bar */}
-        <div className="absolute top-0 left-0 right-0 h-2 bg-slate-700 z-50">
-          <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500" style={{ width: `${gameProgress}%` }} />
-        </div>
-
-        {/* Score */}
-        <div className="absolute top-4 left-4 right-4 flex justify-between text-white font-bold z-50">
-          <div className="text-xl">⭐ {gameState.score}</div>
-          <div className="text-xl">🔥 {gameState.combo}</div>
-        </div>
-
-        {/* Column dividers */}
-        {[1,2,3].map(i => (
-          <div key={i} className="absolute top-0 bottom-0 w-px bg-slate-700/50" style={{ left: `${(i / COLUMN_COUNT) * 100}%` }} />
-        ))}
-
-        {/* Hit zone */}
-        <div className="absolute left-0 right-0 h-16 border-t-4 border-b-4 border-yellow-400 bg-yellow-400/10" style={{ top: `${hitZoneY}px` }}>
-          <div className="flex h-full items-center justify-center text-yellow-400 font-bold text-xs tracking-widest">TAP HERE</div>
-        </div>
-
-        {/* Tiles */}
-        {tiles.map((tile) => {
-          const tileY = hitZoneY - (tile.startTime - currentTime) * 0.3
-          if (tileY < -100 || tileY > fieldHeight + 100) return null
-          const inZone = Math.abs(tileY - hitZoneY) < hitWindow
-          return (
-            <div
-              key={tile.id}
-              onPointerDown={() => tapTile(tile.id)}
-              className={`absolute select-none ${tile.hit ? 'opacity-0 scale-125 transition-all duration-150' : ''}`}
-              style={{ left: `${tile.column * colW + 8}px`, top: `${tileY - 40}px`, width: `${colW - 16}px`, height: '80px' }}
-            >
-              <div className={`w-full h-full rounded-xl flex items-center justify-center text-3xl font-bold text-white shadow-2xl border-2 ${
-                tile.accuracy === 'perfect' ? 'bg-green-500 border-green-300' :
-                tile.accuracy === 'good' ? 'bg-blue-500 border-blue-300' :
-                tile.accuracy === 'miss' ? 'bg-red-500 border-red-300' :
-                inZone ? 'bg-yellow-500 border-yellow-300 scale-105' :
-                'bg-gradient-to-b from-blue-500 to-purple-700 border-blue-300'
-              }`}>
-                ♪
-              </div>
-            </div>
-          )
-        })}
-
-        {/* Combo popup */}
-        {comboPopup && (
-          <div className="absolute top-1/3 left-0 right-0 text-center text-2xl font-bold text-yellow-300 animate-bounce z-50">
-            {comboPopup.text}
-          </div>
-        )}
-      </div>
-    )
+  const handleStart = (song: Song) => {
+    if (!audioRef.current) return
+    audioRef.current.src = song.url
+    audioRef.current.play().catch((e) => console.error('Audio error:', e))
+    setGameStarted(true)
+    runGame(song)
   }
+
+  // SINGLE audio element always in DOM
+  const audioElement = <audio ref={audioRef} crossOrigin="anonymous" style={{ display: 'none' }} />
 
   if (screen === 'songSelect') return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex flex-col items-center justify-center">
+      {audioElement}
       <h1 className="text-5xl font-bold text-white mb-4">🎵 Rhythm Tiles</h1>
       <p className="text-slate-400 mb-12 text-lg">Choose a song and tap the tiles!</p>
       <div className="grid grid-cols-1 gap-4 w-full max-w-sm">
@@ -298,11 +216,12 @@ export default function RhythmGame() {
 
   if (screen === 'difficultySelect' && selectedSong) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex flex-col items-center justify-center">
+      {audioElement}
       <h1 className="text-3xl font-bold text-white mb-2">{selectedSong.name}</h1>
       <p className="text-slate-400 mb-10">Choose your difficulty</p>
       <div className="flex flex-col gap-4 w-full max-w-xs">
-        <button onClick={() => goToGame(selectedSong, 'easy')} className="py-5 bg-green-600 rounded-2xl text-white font-bold text-2xl active:scale-95 transition-all">😊 Easy</button>
-        <button onClick={() => goToGame(selectedSong, 'standard')} className="py-5 bg-red-600 rounded-2xl text-white font-bold text-2xl active:scale-95 transition-all">🔥 Standard</button>
+        <button onClick={() => startGame(selectedSong, 'easy')} className="py-5 bg-green-600 rounded-2xl text-white font-bold text-2xl active:scale-95 transition-all">😊 Easy</button>
+        <button onClick={() => startGame(selectedSong, 'standard')} className="py-5 bg-red-600 rounded-2xl text-white font-bold text-2xl active:scale-95 transition-all">🔥 Standard</button>
         <button onClick={() => setScreen('songSelect')} className="py-3 bg-slate-600 rounded-xl text-white text-sm active:scale-95 transition-all">← Back</button>
       </div>
     </div>
@@ -311,19 +230,66 @@ export default function RhythmGame() {
   if (screen === 'game' && selectedSong) {
     if (!gameStarted) return (
       <div className="w-screen h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-6">
+        {audioElement}
         <h2 className="text-3xl font-bold text-white">{selectedSong.name}</h2>
         <p className="text-slate-400">{difficulty === 'easy' ? '😊 Easy Mode' : '🔥 Standard Mode'}</p>
-        <audio ref={audioRef} crossOrigin="anonymous" />
         <button
-          onClick={() => playGameAudio(selectedSong)}
-          disabled={isLoading}
-          className="px-16 py-8 bg-green-600 rounded-3xl text-white font-bold text-4xl shadow-2xl active:scale-95 transition-all disabled:opacity-50"
+          onClick={() => handleStart(selectedSong)}
+          className="px-16 py-8 bg-green-600 rounded-3xl text-white font-bold text-4xl shadow-2xl active:scale-95 transition-all"
         >
-          {isLoading ? '⏳' : '▶ START'}
+          ▶ START
         </button>
       </div>
     )
-    return <div className="w-screen h-screen">{renderGame()}</div>
+
+    const fieldWidth = playFieldRef.current?.clientWidth || 400
+    const fieldHeight = playFieldRef.current?.clientHeight || 700
+    const colW = fieldWidth / COLUMN_COUNT
+    const currentTime = audioRef.current ? audioRef.current.currentTime * 1000 : 0
+    const hitZoneY = fieldHeight - 180
+    const hitWindow = difficultyRef.current === 'easy' ? EASY_HIT_WINDOW : STANDARD_HIT_WINDOW
+
+    return (
+      <div ref={playFieldRef} className="w-screen h-screen relative bg-gradient-to-b from-slate-900 to-slate-800 overflow-hidden">
+        {audioElement}
+        <div className="absolute top-0 left-0 right-0 h-2 bg-slate-700 z-50">
+          <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500" style={{ width: `${gameProgress}%` }} />
+        </div>
+        <div className="absolute top-4 left-4 right-4 flex justify-between text-white font-bold z-50">
+          <div className="text-xl">⭐ {gameState.score}</div>
+          <div className="text-xl">🔥 {gameState.combo}</div>
+        </div>
+        {[1,2,3].map(i => (
+          <div key={i} className="absolute top-0 bottom-0 w-px bg-slate-700/50" style={{ left: `${(i / COLUMN_COUNT) * 100}%` }} />
+        ))}
+        <div className="absolute left-0 right-0 h-16 border-t-4 border-b-4 border-yellow-400 bg-yellow-400/10" style={{ top: `${hitZoneY}px` }}>
+          <div className="flex h-full items-center justify-center text-yellow-400 font-bold text-xs tracking-widest">TAP HERE</div>
+        </div>
+        {tiles.map((tile) => {
+          const tileY = hitZoneY - (tile.startTime - currentTime) * 0.3
+          if (tileY < -100 || tileY > fieldHeight + 100) return null
+          const inZone = Math.abs(tileY - hitZoneY) < hitWindow
+          return (
+            <div key={tile.id} onPointerDown={() => tapTile(tile.id)}
+              className={`absolute select-none ${tile.hit ? 'opacity-0 scale-125 transition-all duration-150' : ''}`}
+              style={{ left: `${tile.column * colW + 8}px`, top: `${tileY - 40}px`, width: `${colW - 16}px`, height: '80px' }}>
+              <div className={`w-full h-full rounded-xl flex items-center justify-center text-3xl font-bold text-white shadow-2xl border-2 ${
+                tile.accuracy === 'perfect' ? 'bg-green-500 border-green-300' :
+                tile.accuracy === 'good' ? 'bg-blue-500 border-blue-300' :
+                tile.accuracy === 'miss' ? 'bg-red-500 border-red-300' :
+                inZone ? 'bg-yellow-500 border-yellow-300' :
+                'bg-gradient-to-b from-blue-500 to-purple-700 border-blue-300'
+              }`}>♪</div>
+            </div>
+          )
+        })}
+        {comboPopup && (
+          <div className="absolute top-1/3 left-0 right-0 text-center text-2xl font-bold text-yellow-300 animate-bounce z-50">
+            {comboPopup}
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (screen === 'gameOver' && selectedSong) {
@@ -331,6 +297,7 @@ export default function RhythmGame() {
     const accuracy = totalHits > 0 ? Math.round(((gameState.perfect + gameState.good) / totalHits) * 100) : 0
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex flex-col items-center justify-center">
+        {audioElement}
         <h1 className="text-4xl font-bold text-white mb-2">Well Done!</h1>
         <h2 className="text-xl text-slate-400 mb-8">{selectedSong.name}</h2>
         <div className="grid grid-cols-2 gap-3 mb-8 w-full max-w-xs">
@@ -356,7 +323,7 @@ export default function RhythmGame() {
           </div>
         </div>
         <div className="flex flex-col gap-3 w-full max-w-xs">
-          <button onClick={() => goToGame(selectedSong, difficulty)} className="py-4 bg-blue-600 rounded-2xl text-white font-bold text-xl active:scale-95 transition-all">▶ Play Again</button>
+          <button onClick={() => startGame(selectedSong, difficulty)} className="py-4 bg-blue-600 rounded-2xl text-white font-bold text-xl active:scale-95 transition-all">▶ Play Again</button>
           <button onClick={() => setScreen('songSelect')} className="py-4 bg-slate-600 rounded-2xl text-white font-bold active:scale-95 transition-all">🎵 Change Song</button>
         </div>
       </div>
