@@ -289,25 +289,24 @@ export default function RhythmGame() {
 
     setScreen('game')
     setIsGameActive(true)
+  }
 
+  const playGameAudio = (song: Song) => {
     if (audioRef.current) {
       audioRef.current.src = song.url
-      audioRef.current.play().catch(() => {
-        console.log('Audio playback blocked')
+      audioRef.current.currentTime = 0
+      audioRef.current.play().then(() => {
+        spawnTiles(song)
+        startGameAnimation(song)
+
+        setTimeout(() => {
+          if (isGameActive) {
+            endGame()
+          }
+        }, song.duration * 1000 + 500)
+      }).catch((err) => {
+        console.log('Audio playback failed:', err)
       })
-
-      await new Promise((resolve) => {
-        audioRef.current!.onplay = resolve
-      }).catch(() => {})
-
-      spawnTiles(song)
-      startGameAnimation(song)
-
-      setTimeout(() => {
-        if (isGameActive) {
-          endGame()
-        }
-      }, song.duration * 1000 + 500)
     }
   }
 
@@ -483,6 +482,19 @@ export default function RhythmGame() {
 
   if (screen === 'game') {
     return <div className="w-screen h-screen">{renderGame()}</div>
+  }
+
+  if (screen === 'game' && selectedSong && gameProgress === 0) {
+    return (
+      <div className="w-screen h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
+        <button
+          onClick={() => playGameAudio(selectedSong)}
+          className="px-12 py-6 bg-green-600 hover:bg-green-700 rounded-lg text-white font-bold text-3xl transition-all"
+        >
+          🎵 TAP TO START
+        </button>
+      </div>
+    )
   }
 
   if (screen === 'gameOver' && selectedSong) {
