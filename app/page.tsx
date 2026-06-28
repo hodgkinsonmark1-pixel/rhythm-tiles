@@ -288,7 +288,7 @@ export default function RhythmGame() {
         {[1,2,3].map(i => (
           <div key={i} className="absolute top-0 bottom-0 w-px bg-slate-700/50" style={{ left: `${(i / COLUMN_COUNT) * 100}%` }} />
         ))}
-        <div className="absolute left-0 right-0 h-16 border-t-4 border-b-4 border-yellow-400 bg-yellow-400/10" style={{ top: `${hitZoneY}px` }}>
+        <div className="absolute left-0 right-0 h-40 border-t-4 border-b-4 border-yellow-400 bg-yellow-400/10" style={{ top: `${hitZoneY}px` }}>
           <div className="flex h-full items-center justify-center text-yellow-400 font-bold text-xs tracking-widest">TAP HERE</div>
         </div>
         {tiles.map((tile) => {
