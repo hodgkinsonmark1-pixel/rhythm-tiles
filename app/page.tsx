@@ -480,21 +480,20 @@ export default function RhythmGame() {
     )
   }
 
-  if (screen === 'game') {
+  if (screen === 'game' && selectedSong) {
+    if (gameProgress === 0) {
+      return (
+        <div className="w-screen h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
+          <button
+            onClick={() => playGameAudio(selectedSong)}
+            className="px-12 py-6 bg-green-600 hover:bg-green-700 rounded-lg text-white font-bold text-3xl transition-all"
+          >
+            🎵 TAP TO START
+          </button>
+        </div>
+      )
+    }
     return <div className="w-screen h-screen">{renderGame()}</div>
-  }
-
-  if (screen === 'game' && selectedSong && gameProgress === 0) {
-    return (
-      <div className="w-screen h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <button
-          onClick={() => playGameAudio(selectedSong)}
-          className="px-12 py-6 bg-green-600 hover:bg-green-700 rounded-lg text-white font-bold text-3xl transition-all"
-        >
-          🎵 TAP TO START
-        </button>
-      </div>
-    )
   }
 
   if (screen === 'gameOver' && selectedSong) {
